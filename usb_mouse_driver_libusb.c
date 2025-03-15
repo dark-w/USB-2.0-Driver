@@ -3,40 +3,38 @@
 
 #include "usb_mouse_driver_libusb.h"
 
-#define INTR_LENGTH		5
-#define EP_INTR			(0x1 | LIBUSB_ENDPOINT_IN)
 static struct libusb_device_handle *devh = NULL;
 
-static int do_sync_intr(unsigned char *data)
+static int do_sync_intr(unsigned char *data, int max_size, uint8_t ep_addr)
 {
 	int r;
 	int transferred;
 
-	r = libusb_interrupt_transfer(devh, EP_INTR, data, INTR_LENGTH,
+	r = libusb_interrupt_transfer(devh, ep_addr, data, max_size,
 		&transferred, 0);
 	if (r < 0) {
 		fprintf(stderr, "intr error %d\n", r);
 		return r;
 	}
-	if (transferred < INTR_LENGTH) {
+	if (transferred < max_size) {
 		fprintf(stderr, "short read (%d)\n", r);
 		return -1;
 	}
 
 	// printf("recv interrupt %05x\n", *((uint16_t *)data));
-    for (int i = 0; i < INTR_LENGTH; i++)
+    for (int i = 0; i < max_size; i++)
         printf("%02x ", data[i]);
     printf("\n");
 	return 0;
 }
 
-static int sync_intr()
+static int sync_intr(int max_size, uint8_t ep_addr)
 {
 	int r;
-	unsigned char data[INTR_LENGTH];
+	unsigned char data[64];
 
 	while (1) {
-		r = do_sync_intr(data);
+		r = do_sync_intr(data, max_size, ep_addr);
 		if (r < 0)
 			return r;
 	}
@@ -58,6 +56,8 @@ int main()
     struct libusb_device *device;
     int i = 0;
     int found = 0;
+    int max_size = 0;
+    uint8_t ep_addr = 0;
     while ((device = device_list[i++]) != NULL)
     {
 		struct libusb_device_descriptor dev_desc;
@@ -117,6 +117,8 @@ int main()
                 }
 
                 found = 1;
+                max_size = intf_desc->endpoint[0].wMaxPacketSize;
+                ep_addr = intf_desc->endpoint[0].bEndpointAddress;
                 break;
             }
         }
@@ -128,7 +130,7 @@ int main()
     }
 
     if (found)
-        sync_intr();
+        sync_intr(max_size, ep_addr);
 
 exit:
     libusb_free_device_list(device_list, 1);
